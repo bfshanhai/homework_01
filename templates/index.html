@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card">
+    {% if user_info %}
+        <h2 class="card-title">✅ 欢迎回来，{{ user_info.username }}！</h2>
+
+        <div class="security-notice">
+            <span class="security-icon">🛡️</span>
+            <span>您的密码已通过 bcrypt 加密保护，页面不再显示密码原文</span>
+        </div>
+
+        <ul class="info-list">
+            <li><span class="info-label">用户名：</span>{{ user_info.username }}</li>
+            <li><span class="info-label">邮箱：</span>{{ user_info.email }}</li>
+            <li><span class="info-label">手机：</span>{{ user_info.phone }}</li>
+            <li><span class="info-label">角色：</span>{{ user_info.role }}</li>
+            <li><span class="info-label">余额：</span>{{ user_info.balance }}</li>
+            <li class="info-pwd-hidden"><span class="info-label">密码：</span><span class="pwd-masked">•••••••• (已加密保护)</span></li>
+        </ul>
+
+        <div class="action-group">
+            <a href="/change-password" class="btn btn-primary">修改密码</a>
+            <a href="/logout" class="btn btn-outline">退出登录</a>
+        </div>
+    {% else %}
+        <h2 class="card-title">请先登录</h2>
+        <p class="text-muted">您尚未登录系统，登录后可查看个人信息。</p>
+        <a href="/login" class="btn btn-primary">前往登录</a>
+    {% endif %}
+</div>
+{% endblock %}

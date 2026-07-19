@@ -1,0 +1,294 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    background-color: #f0f4f8;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+}
+
+/* ======================== 导航栏 ======================== */
+.navbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0 24px;
+    height: 56px;
+    background: linear-gradient(135deg, #1a1a2e, #16213e);
+    color: #fff;
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.2);
+}
+
+.nav-brand {
+    font-size: 20px;
+    font-weight: 600;
+    letter-spacing: 1px;
+}
+
+.nav-menu {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+.nav-welcome {
+    font-size: 14px;
+    opacity: 0.9;
+}
+
+.nav-link {
+    color: #fff;
+    text-decoration: none;
+    font-size: 14px;
+    padding: 6px 14px;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.12);
+    transition: background 0.2s;
+}
+
+.nav-link:hover {
+    background: rgba(255, 255, 255, 0.25);
+}
+
+/* ======================== 会话安全徽章 ======================== */
+.session-badge {
+    text-align: center;
+    padding: 6px 16px;
+    font-size: 12px;
+    color: #2d6a4f;
+    background: #d8f3dc;
+    border-bottom: 1px solid #b7e4c7;
+}
+
+/* ======================== 主容器 ======================== */
+.container {
+    max-width: 600px;
+    margin: 32px auto;
+    padding: 0 16px;
+    flex: 1;
+}
+
+/* ======================== 卡片 ======================== */
+.card {
+    background: #fff;
+    border-radius: 12px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.07);
+    padding: 32px;
+    margin-bottom: 24px;
+    border: 1px solid #e8ecf1;
+}
+
+.login-card {
+    max-width: 420px;
+    margin: 0 auto;
+}
+
+.card-title {
+    font-size: 22px;
+    font-weight: 600;
+    color: #1a1a2e;
+    margin-bottom: 20px;
+}
+
+/* ======================== 表单 ======================== */
+.form-group {
+    margin-bottom: 18px;
+}
+
+.form-group label {
+    display: block;
+    font-size: 14px;
+    font-weight: 500;
+    color: #444;
+    margin-bottom: 6px;
+}
+
+.form-input {
+    width: 100%;
+    padding: 10px 14px;
+    font-size: 14px;
+    border: 1px solid #d0d5dd;
+    border-radius: 6px;
+    outline: none;
+    transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.form-input:focus {
+    border-color: #1a1a2e;
+    box-shadow: 0 0 0 3px rgba(26, 26, 46, 0.12);
+}
+
+/* ======================== 按钮 ======================== */
+.btn {
+    display: inline-block;
+    padding: 10px 24px;
+    font-size: 14px;
+    font-weight: 500;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    text-decoration: none;
+    text-align: center;
+    transition: background 0.2s, opacity 0.2s;
+}
+
+.btn-full {
+    width: 100%;
+}
+
+.btn-primary {
+    background: #1a1a2e;
+    color: #fff;
+}
+
+.btn-primary:hover {
+    background: #2d2d5e;
+}
+
+.btn-outline {
+    background: transparent;
+    color: #1a1a2e;
+    border: 1px solid #d0d5dd;
+}
+
+.btn-outline:hover {
+    background: #f5f7fa;
+    border-color: #1a1a2e;
+}
+
+/* ======================== 消息提示 ======================== */
+.error-msg {
+    background: #fef2f2;
+    color: #b91c1c;
+    border: 1px solid #fecaca;
+    border-radius: 6px;
+    padding: 10px 14px;
+    margin-bottom: 18px;
+    font-size: 14px;
+}
+
+.success-msg {
+    background: #f0fdf4;
+    color: #15803d;
+    border: 1px solid #bbf7d0;
+    border-radius: 6px;
+    padding: 10px 14px;
+    margin-bottom: 18px;
+    font-size: 14px;
+}
+
+/* ======================== 信息列表 ======================== */
+.info-list {
+    list-style: none;
+    margin-bottom: 24px;
+}
+
+.info-list li {
+    padding: 10px 0;
+    border-bottom: 1px solid #f0f0f0;
+    font-size: 15px;
+    color: #444;
+}
+
+.info-list li:last-child {
+    border-bottom: none;
+}
+
+.info-label {
+    font-weight: 600;
+    color: #1a1a2e;
+    display: inline-block;
+    min-width: 80px;
+}
+
+.info-pwd-hidden {
+    color: #6b7280 !important;
+}
+
+.pwd-masked {
+    font-style: italic;
+    color: #9ca3af;
+    letter-spacing: 2px;
+}
+
+/* ======================== 安全通知 ======================== */
+.security-notice {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: #f0fdf4;
+    border: 1px solid #bbf7d0;
+    border-radius: 6px;
+    padding: 10px 14px;
+    margin-bottom: 18px;
+    font-size: 13px;
+    color: #15803d;
+}
+
+.security-icon {
+    font-size: 18px;
+}
+
+/* ======================== 登录页安全徽章 ======================== */
+.security-badge {
+    margin-top: 20px;
+    text-align: center;
+    font-size: 12px;
+    color: #6b7280;
+    padding-top: 16px;
+    border-top: 1px solid #f0f0f0;
+}
+
+/* ======================== 密码策略说明 ======================== */
+.policy-notice {
+    background: #fffbeb;
+    border: 1px solid #fde68a;
+    border-radius: 6px;
+    padding: 14px;
+    margin-bottom: 20px;
+    font-size: 13px;
+    color: #92400e;
+}
+
+.policy-notice ul {
+    margin-top: 8px;
+    padding-left: 20px;
+}
+
+.policy-notice li {
+    margin-bottom: 4px;
+    line-height: 1.4;
+}
+
+/* ======================== 操作按钮组 ======================== */
+.action-group {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+/* ======================== 辅助文本 ======================== */
+.text-muted {
+    color: #888;
+    margin-bottom: 20px;
+    font-size: 15px;
+}
+
+/* ======================== 页脚 ======================== */
+.footer {
+    text-align: center;
+    padding: 16px;
+    background: #f8fafc;
+    border-top: 1px solid #e2e8f0;
+    margin-top: auto;
+}
+
+.footer-text {
+    font-size: 12px;
+    color: #94a3b8;
+}

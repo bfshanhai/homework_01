@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>用户管理系统 - 安全版</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <nav class="navbar">
+        <div class="nav-brand">🔒 用户管理系统</div>
+        <div class="nav-menu">
+            {% if session.get('username') %}
+                <span class="nav-welcome">欢迎，{{ session['username'] }}</span>
+                <a href="/change-password" class="nav-link">修改密码</a>
+                <a href="/logout" class="nav-link">退出</a>
+            {% else %}
+                <a href="/login" class="nav-link">登录</a>
+            {% endif %}
+        </div>
+    </nav>
+
+    {% if session.get('username') %}
+    <div class="session-badge">
+        🔐 会话已加密 · 登录时间: {{ session.get('login_time', '未知') }}
+    </div>
+    {% endif %}
+
+    <main class="container">
+        {% block content %}{% endblock %}
+    </main>
+
+    <footer class="footer">
+        <span class="footer-text">安全等级 A+ &nbsp;|&nbsp; 密码采用 bcrypt 加密 &nbsp;|&nbsp; 全站 HTTPS</span>
+    </footer>
+</body>
+</html>

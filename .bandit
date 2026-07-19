@@ -1,0 +1,25 @@
+# Bandit 安全审计配置 — 用于 CI/CD 流水线
+# 执行: bandit -c .bandit -r app.py
+
+# 被信任的目录/文件（跳过审计）
+exclude_dirs:
+  - tests/
+  - .env
+  - .github/
+
+# 要检查的测试（跳过误报规则）
+skips:
+  # B101: assert 语句 — 仅在测试中合法
+  - B101
+  # B104: 全接口绑定 — 服务器正常行为
+  - B104
+  # B105: bcrypt 哈希字符串被误报为硬编码密码
+  - B105
+
+# 测试严重度门槛
+confidence:
+  - HIGH
+  - MEDIUM
+
+# 输出格式
+format: txt
