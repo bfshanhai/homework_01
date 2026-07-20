@@ -7,6 +7,10 @@
         <div class="error-msg">{{ error }}</div>
     {% endif %}
 
+    {% if success %}
+        <div class="success-msg">{{ success }}</div>
+    {% endif %}
+
     <form method="post" action="/login" class="login-form">
         <div class="form-group">
             <label for="username">用户名</label>

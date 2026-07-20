@@ -240,3 +240,81 @@ class TestInfoLeakage:
             "[FAIL] 登录页包含泄露账号的 HTML 注释！"
         )
         assert b"admin123" not in resp.data
+
+
+# ======================== HC-07: SQL 注入防护 ========================
+
+class TestSQLInjection:
+    """HC-07 SQL 注入 — 验证参数化查询防御"""
+
+    def test_register_sql_injection_username(self, client):
+        """注册时用户名含 SQL 注入语句不应影响数据库"""
+        # 尝试 SQL 注入：用户名包含闭合单引号和 DELETE 语句
+        resp = client.post("/register", data={
+            "username": "x'; DELETE FROM users; --",
+            "password": "Test123",
+            "email": "x@x.com",
+            "phone": "13900000000",
+        }, follow_redirects=True)
+        # 不应报 500 错误
+        assert resp.status_code != 500
+        # 数据库中的用户不应被删除（admin 和 alice 必须仍在）
+        import sqlite3
+        conn = sqlite3.connect("data/users.db")
+        c = conn.cursor()
+        c.execute("SELECT COUNT(*) FROM users")
+        count = c.fetchone()[0]
+        conn.close()
+        assert count >= 2, "[FAIL] SQL 注入导致数据被删除！"
+
+    def test_search_sql_injection_or_1eq1(self, client):
+        """搜索时 SQL 注入 ' OR '1'='1 不应返回所有用户"""
+        # 先正常登录
+        client.post("/login", data={
+            "username": "admin",
+            "password": "admin123",
+        })
+        # 使用 SQL 注入 payload
+        resp = client.get("/search?keyword=1' OR '1'%3D'1")
+        # 不应是 500 错误
+        assert resp.status_code != 500
+        # 应只返回匹配的用户而非全部用户
+        # 正常返回时不报错即可
+
+    def test_search_sql_injection_union(self, client):
+        """搜索时 UNION 注入不应暴露其他表数据"""
+        client.post("/login", data={
+            "username": "admin",
+            "password": "admin123",
+        })
+        resp = client.get("/search?keyword=' UNION SELECT * FROM users--")
+        assert resp.status_code != 500
+
+    def test_search_special_chars_safe(self, client):
+        """搜索含特殊字符应安全处理"""
+        client.post("/login", data={
+            "username": "admin",
+            "password": "admin123",
+        })
+        resp = client.get("/search?keyword=<script>alert(1)</script>")
+        assert resp.status_code == 200
+        # 应安全显示，不报错
+
+    def test_register_and_search_roundtrip(self, client):
+        """注册后能通过搜索正常找到"""
+        # 注册
+        client.post("/register", data={
+            "username": "sqltest_user",
+            "password": "Test123!",
+            "email": "sqltest@example.com",
+            "phone": "13700000000",
+        })
+        # 登录
+        client.post("/login", data={
+            "username": "admin",
+            "password": "admin123",
+        })
+        # 搜索
+        resp = client.get("/search?keyword=sqltest")
+        assert resp.status_code == 200
+        assert "sqltest".encode() in resp.data

@@ -5,6 +5,7 @@
 ======================================================================
 """
 import os
+import sqlite3
 import logging
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -57,6 +58,38 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(message)s",
 )
 logger = logging.getLogger(__name__)
+
+# ------------------------------------------------------------------
+# 数据库初始化（SQLite）
+# ------------------------------------------------------------------
+
+
+def init_db():
+    """初始化 SQLite 数据库，创建 users 表并插入默认用户"""
+    Path("data").mkdir(exist_ok=True)
+    conn = sqlite3.connect("data/users.db")
+    c = conn.cursor()
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT UNIQUE NOT NULL,
+            password TEXT NOT NULL,
+            email TEXT,
+            phone TEXT
+        )
+    """)
+    # 插入默认用户（INSERT OR IGNORE 防止重复）
+    c.execute("INSERT OR IGNORE INTO users (username, password, email, phone) VALUES (?, ?, ?, ?)",
+              ("admin", "admin123", "admin@example.com", "13800138000"))
+    c.execute("INSERT OR IGNORE INTO users (username, password, email, phone) VALUES (?, ?, ?, ?)",
+              ("alice", "alice2025", "alice@example.com", "13900139001"))
+    conn.commit()
+    conn.close()
+    logger.info("数据库初始化完成: data/users.db")
+
+
+# 初始化数据库
+init_db()
 
 # ------------------------------------------------------------------
 # ③ 强密码策略配置
@@ -149,7 +182,7 @@ def get_safe_user_info(username: str) -> dict | None:
 def index():
     username = session.get("username")
     user_info = get_safe_user_info(username) if username else None
-    return render_template("index.html", user_info=user_info)
+    return render_template("index.html", user_info=user_info, search_results=None, keyword="")
 
 
 # ------------------------------------------------------------------
@@ -186,7 +219,7 @@ def login():
         session["login_time"] = datetime.now().isoformat()
         user_info = get_safe_user_info(username)
         logger.info("登录成功: %s", username)
-        return render_template("index.html", user_info=user_info)
+        return render_template("index.html", user_info=user_info, search_results=None, keyword="")
 
     return render_template("login.html")
 
@@ -200,6 +233,79 @@ def logout():
     session.clear()
     logger.info("用户登出: %s", username)
     return redirect("/")
+
+
+# ------------------------------------------------------------------
+# 路由：注册（参数化查询，防止 SQL 注入）
+# ------------------------------------------------------------------
+@app.route("/register", methods=["GET", "POST"])
+def register():
+    if request.method == "POST":
+        username = request.form.get("username", "").strip()
+        password = request.form.get("password", "")
+        email = request.form.get("email", "").strip()
+        phone = request.form.get("phone", "").strip()
+
+        # 使用参数化查询防止 SQL 注入
+        sql = "INSERT INTO users (username, password, email, phone) VALUES (?, ?, ?, ?)"
+        params = (username, password, email, phone)
+        logger.info("执行 SQL (参数化): %s | params=%s", sql, params)
+
+        conn = sqlite3.connect("data/users.db")
+        c = conn.cursor()
+        try:
+            c.execute(sql, params)
+            conn.commit()
+            logger.info("注册成功: %s", username)
+            return render_template("login.html", success="注册成功，请登录")
+        except sqlite3.IntegrityError:
+            logger.warning("注册失败 — 用户名已存在: %s", username)
+            return render_template("register.html", error="用户名已存在")
+        finally:
+            conn.close()
+
+    return render_template("register.html")
+
+
+# ------------------------------------------------------------------
+# 路由：搜索（参数化查询，防止 SQL 注入）
+# ------------------------------------------------------------------
+@app.route("/search")
+def search():
+    username = session.get("username")
+    user_info = None
+    if username and username in USERS:
+        user_info = get_safe_user_info(username)
+
+    keyword = request.args.get("keyword", "").strip()
+
+    # 使用参数化查询防止 SQL 注入
+    sql = "SELECT * FROM users WHERE username LIKE ? OR email LIKE ?"
+    pattern = f"%{keyword}%"
+    params = (pattern, pattern)
+    logger.info("执行 SQL (参数化): %s | params=%s", sql, params)
+
+    results = []
+    conn = sqlite3.connect("data/users.db")
+    conn.row_factory = sqlite3.Row
+    c = conn.cursor()
+    try:
+        c.execute(sql, params)
+        rows = c.fetchall()
+        for row in rows:
+            results.append({
+                "id": row["id"],
+                "username": row["username"],
+                "email": row["email"],
+                "phone": row["phone"],
+            })
+        logger.info("搜索结果: %d 条记录", len(results))
+    except Exception as e:
+        logger.error("搜索出错: %s", e)
+    finally:
+        conn.close()
+
+    return render_template("index.html", user_info=user_info, search_results=results, keyword=keyword)
 
 
 # ------------------------------------------------------------------

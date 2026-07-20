@@ -292,3 +292,103 @@ body {
     font-size: 12px;
     color: #94a3b8;
 }
+
+/* ======================== 分割线与章节标题 ======================== */
+.section-divider {
+    border: none;
+    border-top: 1px solid #e2e8f0;
+    margin: 24px 0;
+}
+
+.section-title {
+    font-size: 18px;
+    font-weight: 600;
+    color: #1a1a2e;
+    margin-bottom: 16px;
+}
+
+/* ======================== 搜索框 ======================== */
+.search-form {
+    margin-bottom: 20px;
+}
+
+.search-box {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+}
+
+.search-input {
+    flex: 1;
+}
+
+/* ======================== 搜索结果 ======================== */
+.search-results {
+    margin-top: 16px;
+}
+
+.results-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: #555;
+    margin-bottom: 12px;
+}
+
+.no-results {
+    text-align: center;
+    padding: 20px;
+    color: #888;
+    font-size: 14px;
+    background: #f9fafb;
+    border-radius: 6px;
+    border: 1px dashed #d0d5dd;
+}
+
+/* ======================== 数据表格 ======================== */
+.data-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+}
+
+.data-table thead {
+    background: #f8fafc;
+}
+
+.data-table th {
+    text-align: left;
+    padding: 10px 12px;
+    font-weight: 600;
+    color: #555;
+    border-bottom: 2px solid #e2e8f0;
+}
+
+.data-table td {
+    padding: 10px 12px;
+    color: #444;
+    border-bottom: 1px solid #f0f0f0;
+}
+
+.data-table tbody tr:hover {
+    background: #f8fafc;
+}
+
+/* ======================== 认证链接 ======================== */
+.auth-links {
+    margin-top: 20px;
+    text-align: center;
+    font-size: 14px;
+    color: #888;
+    padding-top: 16px;
+    border-top: 1px solid #f0f0f0;
+}
+
+.link-primary {
+    color: #667eea;
+    text-decoration: none;
+    font-weight: 500;
+}
+
+.link-primary:hover {
+    text-decoration: underline;
+}
