@@ -28,3 +28,9 @@ data/
 .DS_Store
 Thumbs.db
 .github/workflows/
+
+# 上传记录
+data/upload_sizes.txt
+data/upload_sizes.txt
+static/uploads/*
+!static/uploads/.gitkeep

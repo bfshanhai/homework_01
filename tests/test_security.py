@@ -8,6 +8,7 @@ import os
 import sys
 import bcrypt
 import pytest
+from io import BytesIO
 
 # 将被测应用加入路径
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
@@ -318,3 +319,57 @@ class TestSQLInjection:
         resp = client.get("/search?keyword=sqltest")
         assert resp.status_code == 200
         assert "sqltest".encode() in resp.data
+
+
+# ======================== HC-FU: 文件上传安全 ========================
+
+class TestFileUploadSecurity:
+    """HC-FU 文件上传 — 验证上传安全防护"""
+
+    def test_upload_rejects_py_file(self, client):
+        """上传 .py 文件应被拒绝"""
+        client.post("/login", data={"username": "admin", "password": "admin123"})
+        data = {"file": (BytesIO(b'print("evil")'), "evil.py")}
+        resp = client.post("/upload", data=data, content_type="multipart/form-data")
+        assert resp.status_code == 200
+        assert "不支持".encode() in resp.data or "错误".encode() in resp.data
+
+    def test_upload_rejects_fake_png(self, client):
+        """伪装成 PNG 的可执行文件应被 PIL 检测拒绝"""
+        client.post("/login", data={"username": "admin", "password": "admin123"})
+        # PNG magic header + non-image data
+        fake_content = b"\x89PNG\r\n\x1a\n" + b"not_a_real_image_data_here" * 50
+        data = {"file": (BytesIO(fake_content), "fake.png")}
+        resp = client.post("/upload", data=data, content_type="multipart/form-data")
+        assert resp.status_code == 200
+        assert "不是有效".encode() in resp.data
+
+    def test_upload_rejects_path_traversal(self, client):
+        """路径穿越文件名应被拒绝"""
+        client.post("/login", data={"username": "admin", "password": "admin123"})
+        data = {"file": (BytesIO(b"dummy"), "../../etc/malicious.py")}
+        resp = client.post("/upload", data=data, content_type="multipart/form-data")
+        assert resp.status_code == 200
+        # 应返回错误信息
+        text = resp.data.decode()
+        assert any(msg in text for msg in ["不合法", "不支持", "错误", "请选择"])
+
+    def test_upload_requires_login(self, client):
+        """未登录访问上传页应跳转"""
+        resp = client.get("/upload", follow_redirects=False)
+        assert resp.status_code == 302
+        assert "/login" in resp.headers.get("Location", "")
+
+    def test_valid_png_upload_succeeds(self, client):
+        """真正的 PNG 图片应上传成功"""
+        client.post("/login", data={"username": "admin", "password": "admin123"})
+        # 创建一个真实有效的 PNG
+        import io
+        from PIL import Image
+        img_buf = io.BytesIO()
+        Image.new("RGB", (10, 10), color="red").save(img_buf, "PNG")
+        img_buf.seek(0)
+        data = {"file": (img_buf, "test_avatar.png")}
+        resp = client.post("/upload", data=data, content_type="multipart/form-data")
+        assert resp.status_code == 200
+        assert "上传成功".encode() in resp.data

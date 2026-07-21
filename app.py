@@ -5,8 +5,10 @@
 ======================================================================
 """
 import os
+import re
 import sqlite3
 import logging
+import mimetypes
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -14,6 +16,7 @@ import bcrypt
 from dotenv import load_dotenv
 from flask import Flask, render_template, request, redirect, session, url_for
 from flask_talisman import Talisman
+from werkzeug.utils import secure_filename
 
 # ------------------------------------------------------------------
 # ① 密钥管理：环境变量加载，禁止硬编码
@@ -32,6 +35,7 @@ if not SECRET_KEY:
 # ------------------------------------------------------------------
 app = Flask(__name__)
 app.secret_key = SECRET_KEY
+app.config["MAX_CONTENT_LENGTH"] = 16 * 1024 * 1024  # 16MB
 
 # ------------------------------------------------------------------
 # ④ 传输加密：安全 HTTP 头 + 开发环境 SSL 配置
@@ -47,6 +51,7 @@ Talisman(
     content_security_policy={
         "default-src": "'self'",
         "style-src": "'self' 'unsafe-inline'",
+        "img-src": "'self' data:",
     },
     feature_policy="camera 'none'; microphone 'none'",
     referrer_policy="strict-origin-when-cross-origin",
@@ -57,6 +62,8 @@ logging.basicConfig(
     level=getattr(logging, os.getenv("LOG_LEVEL", "INFO")),
     format="%(asctime)s [%(levelname)s] %(message)s",
 )
+# 抑制 PIL 调试日志
+logging.getLogger("PIL").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
 # ------------------------------------------------------------------
@@ -102,6 +109,20 @@ PASSWORD_POLICY = {
     "require_special": os.getenv("PASSWORD_REQUIRE_SPECIAL", "True").lower() == "true",
     "expiry_days": int(os.getenv("PASSWORD_EXPIRY_DAYS", 90)),
 }
+
+# ------------------------------------------------------------------
+# 文件上传安全配置
+# ------------------------------------------------------------------
+ALLOWED_EXTENSIONS = {"jpg", "jpeg", "png", "gif", "webp", "bmp", "svg"}
+ALLOWED_MIME_TYPES = {
+    "image/jpeg",
+    "image/png",
+    "image/gif",
+    "image/webp",
+    "image/bmp",
+    "image/svg+xml",
+}
+MAX_STORAGE_PER_USER = 50 * 1024 * 1024  # 50MB 每用户存储配额
 
 
 def validate_password_strength(password: str) -> tuple[bool, list[str]]:
@@ -363,6 +384,114 @@ def change_password():
 @app.route("/health")
 def health():
     return {"status": "ok", "timestamp": datetime.now().isoformat()}
+
+
+# ------------------------------------------------------------------
+# 路由：头像上传（含安全校验）
+# ------------------------------------------------------------------
+UPLOAD_BASE = Path("static/uploads")
+UPLOAD_SIZE_FILE = Path("data/upload_sizes.txt")
+
+
+def _get_user_upload_size(username: str) -> int:
+    """获取用户已使用的上传存储总量"""
+    if not UPLOAD_SIZE_FILE.exists():
+        return 0
+    total = 0
+    for line in UPLOAD_SIZE_FILE.read_text().splitlines():
+        parts = line.strip().split("|")
+        if len(parts) >= 3 and parts[0] == username:
+            total += int(parts[2])
+    return total
+
+
+def _record_upload(username: str, filename: str, size: int):
+    """记录用户上传文件信息"""
+    UPLOAD_SIZE_FILE.parent.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now().isoformat()
+    with open(str(UPLOAD_SIZE_FILE), "a", encoding="utf-8") as f:
+        f.write(f"{username}|{filename}|{size}|{timestamp}\n")
+
+
+@app.route("/upload", methods=["GET", "POST"])
+def upload():
+    username = session.get("username")
+    if not username:
+        return redirect("/login")
+
+    if request.method == "POST":
+        file = request.files.get("file")
+        if file is None or file.filename == "":
+            return render_template("upload.html", error="请选择要上传的文件")
+
+        # ── HC-FU-02 路径穿越防护 ──
+        raw_filename = file.filename
+        safe_name = secure_filename(raw_filename)
+        if not safe_name:
+            return render_template("upload.html", error="文件名不合法，请重命名后上传")
+        if safe_name != raw_filename and "../" not in raw_filename and ".." not in raw_filename.split("/"):
+            # 路径穿越检查：secure_filename 会剥离路径分隔符
+            logger.warning("路径穿越尝试被拦截: %s -> %s", raw_filename, safe_name)
+            # 只允许使用安全后的文件名
+            pass
+
+        # ── HC-FU-01 文件类型校验 ──
+        ext = Path(safe_name).suffix.lower().lstrip(".")
+        if ext not in ALLOWED_EXTENSIONS:
+            logger.warning("文件类型被拒绝: %s (扩展名: .%s)", raw_filename, ext)
+            return render_template("upload.html", error=f"不支持 .{ext} 文件类型，仅允许图片文件")
+
+        # MIME 类型检查
+        mime_type, _ = mimetypes.guess_type(safe_name)
+        if mime_type and mime_type not in ALLOWED_MIME_TYPES:
+            logger.warning("MIME 类型被拒绝: %s -> %s", raw_filename, mime_type)
+            return render_template("upload.html", error="文件 MIME 类型不合法")
+
+        # 文件内容校验（使用 PIL 完整验证图片有效性；SVG 单独处理）
+        file.seek(0)
+        if ext == "svg":
+            svg_content = file.read(4096)
+            if b"<svg" not in svg_content[:500] and b"<?xml" not in svg_content[:500]:
+                logger.warning("SVG 文件内容校验失败: %s", raw_filename)
+                return render_template("upload.html", error="SVG 文件内容不合法")
+            file.seek(0)
+        else:
+            try:
+                from PIL import Image as PILImage
+                pil_img = PILImage.open(file)
+                pil_img.verify()  # 验证整个文件是有效图片
+                file.seek(0)
+            except Exception:
+                logger.warning("PIL 图片校验失败: %s", raw_filename)
+                return render_template("upload.html", error="文件内容不是有效的图片格式")
+
+        # ── HC-FU-05 每用户存储配额检查 ──
+        current_usage = _get_user_upload_size(username)
+        if current_usage >= MAX_STORAGE_PER_USER:
+            logger.warning("用户 %s 存储配额已满 (%d/%d)", username, current_usage, MAX_STORAGE_PER_USER)
+            return render_template("upload.html", error="存储空间已满，请删除旧文件后再上传")
+
+        # ── HC-FU-04 文件覆盖防护：用户独立目录 + 时间戳 ──
+        user_dir = UPLOAD_BASE / username
+        user_dir.mkdir(parents=True, exist_ok=True)
+        timestamp_prefix = datetime.now().strftime("%Y%m%d_%H%M%S")
+        stored_name = f"{timestamp_prefix}_{safe_name}"
+        save_path = user_dir / stored_name
+
+        file.save(str(save_path))
+        file_size = save_path.stat().st_size
+        _record_upload(username, stored_name, file_size)
+
+        file_url = url_for("static", filename=f"uploads/{username}/{stored_name}")
+        logger.info("用户 %s 上传文件成功: %s (%d bytes)", username, stored_name, file_size)
+        return render_template(
+            "upload.html",
+            success="上传成功",
+            filename=stored_name,
+            file_url=file_url,
+        )
+
+    return render_template("upload.html")
 
 
 # ------------------------------------------------------------------

@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card login-card">
+    <h2 class="card-title">📷 上传头像</h2>
+
+    {% if error %}
+        <div class="error-msg">{{ error }}</div>
+    {% endif %}
+
+    {% if success %}
+        <div class="success-msg">{{ success }}</div>
+        <div class="upload-preview">
+            <p class="upload-file-label">已上传文件：<strong>{{ filename | e }}</strong></p>
+            <img src="{{ file_url }}" alt="头像预览" class="avatar-preview">
+            <div class="upload-url-box">
+                <span class="upload-url-label">访问链接：</span>
+                <a href="{{ file_url }}" class="link-primary" target="_blank">{{ file_url }}</a>
+            </div>
+        </div>
+    {% endif %}
+
+    <form method="post" action="/upload" enctype="multipart/form-data" class="login-form">
+        <div class="form-group">
+            <label for="file">选择头像文件</label>
+            <input type="file" id="file" name="file" class="form-input form-file-input" accept="image/*" required>
+        </div>
+        <button type="submit" class="btn btn-primary btn-full">上传</button>
+    </form>
+
+    <div class="upload-note">
+        <span>📌 上传说明</span>
+        <ul>
+            <li>支持格式：JPG、PNG、GIF、WebP、BMP、SVG</li>
+            <li>文件经过类型校验、魔术字节检测</li>
+            <li>每用户存储配额 50MB</li>
+        </ul>
+    </div>
+
+    <div class="action-group" style="margin-top: 20px;">
+        <a href="/" class="btn btn-outline">返回首页</a>
+    </div>
+</div>
+{% endblock %}
