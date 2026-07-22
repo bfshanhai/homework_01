@@ -24,9 +24,11 @@ ERROR_MSG = "用户名或密码错误"
 def client():
     app.config["TESTING"] = True
     app.config["SECRET_KEY"] = "test-key-for-pytest"
+    # 预置 CSRF token 方便测试
     with app.test_client() as c:
-        with app.app_context():
-            yield c
+        with c.session_transaction() as sess:
+            sess["_csrf_token"] = "test-csrf-token-for-pytest"
+        yield c
 
 
 # ======================== HC-01: 密码存储安全 ========================
@@ -373,3 +375,100 @@ class TestFileUploadSecurity:
         resp = client.post("/upload", data=data, content_type="multipart/form-data")
         assert resp.status_code == 200
         assert "上传成功".encode() in resp.data
+
+
+# ======================== HC-AUTH: 权限与授权安全 ========================
+
+class TestAuthZSecurity:
+    """HC-AUTH 权限安全 — 验证越权防护、CSRF、金额校验"""
+
+    def _login_as(self, client, username: str, password: str):
+        """辅助：登录指定用户"""
+        client.post("/login", data={
+            "username": username,
+            "password": password,
+        })
+
+    def _get_csrf(self, resp):
+        """辅助：从响应中提取 CSRF token"""
+        import re
+        match = re.search(r'name="_csrf_token"\s+value="([^"]+)"', resp.data.decode())
+        return match.group(1) if match else ""
+
+    def test_profile_requires_login(self, client):
+        """未登录访问个人中心应跳转登录"""
+        resp = client.get("/profile", follow_redirects=False)
+        assert resp.status_code == 302
+        assert "/login" in resp.headers.get("Location", "")
+
+    def test_profile_shows_own_info(self, client):
+        """个人中心应显示当前登录用户的信息"""
+        self._login_as(client, "alice", "alice2025")
+        resp = client.get("/profile")
+        assert resp.status_code == 200
+        assert b"alice" in resp.data
+        assert b"alice@example.com" in resp.data
+
+    def test_profile_ignores_user_id_param(self, client):
+        """个人中心忽略 URL 中的 user_id 参数，仅显示自己"""
+        self._login_as(client, "alice", "alice2025")
+        # 尝试传入 user_id=1（admin）的参数
+        resp = client.get("/profile?user_id=1")
+        assert resp.status_code == 200
+        # 不应显示 admin 的信息
+        assert b"admin@example.com" not in resp.data
+        # 仍显示 alice 的信息
+        assert b"alice@example.com" in resp.data
+
+    def test_recharge_requires_login(self, client):
+        """未登录充值应跳转"""
+        resp = client.post("/recharge", data={"amount": "100"}, follow_redirects=False)
+        assert resp.status_code == 302
+
+    def test_recharge_without_csrf_fails(self, client):
+        """缺少 CSRF token 的充值请求应被拒绝"""
+        self._login_as(client, "alice", "alice2025")
+        resp = client.post("/recharge", data={"amount": "100"})
+        assert resp.status_code == 200
+        assert "安全校验失败".encode() in resp.data
+
+    def test_recharge_with_wrong_csrf_fails(self, client):
+        """错误的 CSRF token 应被拒绝"""
+        self._login_as(client, "alice", "alice2025")
+        resp = client.post("/recharge", data={"amount": "100", "_csrf_token": "fake-token"})
+        assert resp.status_code == 200
+        assert "安全校验失败".encode() in resp.data
+
+    def test_recharge_negative_amount_fails(self, client):
+        """负数充值应被拒绝"""
+        self._login_as(client, "alice", "alice2025")
+        # 触发 CSRF token 生成
+        client.get("/profile")
+        with client.session_transaction() as sess:
+            csrf = sess.get("_csrf_token", "")
+        assert csrf != "", "CSRF token 为空"
+        resp = client.post("/recharge", data={"amount": "-100", "_csrf_token": csrf})
+        assert resp.status_code == 200
+        assert "必须大于 0".encode() in resp.data
+
+    def test_recharge_zero_amount_fails(self, client):
+        """零元充值应被拒绝"""
+        self._login_as(client, "alice", "alice2025")
+        client.get("/profile")
+        with client.session_transaction() as sess:
+            csrf = sess.get("_csrf_token", "")
+        assert csrf != "", "CSRF token 为空"
+        resp = client.post("/recharge", data={"amount": "0", "_csrf_token": csrf})
+        assert resp.status_code == 200
+        assert "必须大于 0".encode() in resp.data
+
+    def test_recharge_legit_succeeds(self, client):
+        """合法充值应成功"""
+        self._login_as(client, "alice", "alice2025")
+        client.get("/profile")
+        with client.session_transaction() as sess:
+            csrf = sess.get("_csrf_token", "")
+        assert csrf != "", "CSRF token 为空"
+        resp = client.post("/recharge", data={"amount": "50", "_csrf_token": csrf}, follow_redirects=True)
+        assert resp.status_code == 200
+        assert b"150" in resp.data or b"150.00" in resp.data

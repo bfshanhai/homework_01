@@ -472,3 +472,46 @@ body {
     margin-bottom: 4px;
     line-height: 1.4;
 }
+
+/* ======================== 个人中心 ======================== */
+.profile-header {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin-bottom: 24px;
+    padding-bottom: 20px;
+    border-bottom: 1px solid #e8ecf1;
+}
+
+.profile-avatar-placeholder {
+    width: 60px;
+    height: 60px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #667eea, #764ba2);
+    color: #fff;
+    font-size: 26px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.profile-username {
+    font-size: 22px;
+    font-weight: 600;
+    color: #1a1a2e;
+}
+
+.profile-balance-item {
+    background: #fffbeb !important;
+    border-radius: 6px;
+    padding: 12px 10px !important;
+    margin-top: 4px;
+}
+
+.profile-balance {
+    font-size: 20px;
+    font-weight: 700;
+    color: #d97706;
+}

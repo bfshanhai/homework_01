@@ -9,6 +9,7 @@ import re
 import sqlite3
 import logging
 import mimetypes
+import secrets
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -82,14 +83,24 @@ def init_db():
             username TEXT UNIQUE NOT NULL,
             password TEXT NOT NULL,
             email TEXT,
-            phone TEXT
+            phone TEXT,
+            balance REAL DEFAULT 0
         )
     """)
+    # 兼容旧表：若 balance 字段不存在则添加
+    try:
+        c.execute("ALTER TABLE users ADD COLUMN balance REAL DEFAULT 0")
+        logger.info("已添加 balance 字段到 users 表")
+    except sqlite3.OperationalError:
+        pass  # 字段已存在
+    # 更新默认用户余额（兼容已有数据）
+    c.execute("UPDATE users SET balance = 99999 WHERE username = 'admin' AND (balance IS NULL OR balance = 0)")
+    c.execute("UPDATE users SET balance = 100 WHERE username = 'alice' AND (balance IS NULL OR balance = 0)")
     # 插入默认用户（INSERT OR IGNORE 防止重复）
-    c.execute("INSERT OR IGNORE INTO users (username, password, email, phone) VALUES (?, ?, ?, ?)",
-              ("admin", "admin123", "admin@example.com", "13800138000"))
-    c.execute("INSERT OR IGNORE INTO users (username, password, email, phone) VALUES (?, ?, ?, ?)",
-              ("alice", "alice2025", "alice@example.com", "13900139001"))
+    c.execute("INSERT OR IGNORE INTO users (username, password, email, phone, balance) VALUES (?, ?, ?, ?, ?)",
+              ("admin", "admin123", "admin@example.com", "13800138000", 99999))
+    c.execute("INSERT OR IGNORE INTO users (username, password, email, phone, balance) VALUES (?, ?, ?, ?, ?)",
+              ("alice", "alice2025", "alice@example.com", "13900139001", 100))
     conn.commit()
     conn.close()
     logger.info("数据库初始化完成: data/users.db")
@@ -492,6 +503,101 @@ def upload():
         )
 
     return render_template("upload.html")
+
+
+# ------------------------------------------------------------------
+# CSRF 防护
+# ------------------------------------------------------------------
+
+
+def generate_csrf_token():
+    """生成并存储 CSRF token 到 session"""
+    if "_csrf_token" not in session:
+        session["_csrf_token"] = secrets.token_hex(32)
+    return session["_csrf_token"]
+
+
+def validate_csrf_token(token):
+    """校验 CSRF token"""
+    stored = session.get("_csrf_token")
+    if not stored or not token:
+        return False
+    return secrets.compare_digest(stored, token)
+
+
+# 将 csrf_token 函数注入所有模板上下文
+@app.context_processor
+def inject_csrf():
+    return dict(csrf_token=generate_csrf_token)
+
+
+# ------------------------------------------------------------------
+# 路由：个人中心（仅当前登录用户可查看自己的资料）
+# ------------------------------------------------------------------
+@app.route("/profile")
+def profile():
+    username = session.get("username")
+    if not username:
+        return redirect("/login")
+
+    conn = sqlite3.connect("data/users.db")
+    conn.row_factory = sqlite3.Row
+    c = conn.cursor()
+    c.execute("SELECT id, username, email, phone, balance FROM users WHERE username = ?", (username,))
+    user = c.fetchone()
+    conn.close()
+
+    if not user:
+        return render_template("profile.html", error="用户数据不存在")
+
+    user_dict = {
+        "id": user["id"],
+        "username": user["username"],
+        "email": user["email"],
+        "phone": user["phone"],
+        "balance": user["balance"],
+    }
+    return render_template("profile.html", user=user_dict)
+
+
+# ------------------------------------------------------------------
+# 路由：充值（仅当前登录用户、仅正数金额、CSRF 防护）
+# ------------------------------------------------------------------
+@app.route("/recharge", methods=["POST"])
+def recharge():
+    username = session.get("username")
+    if not username:
+        return redirect("/login")
+
+    # ── CSRF 校验 ──
+    csrf_input = request.form.get("_csrf_token", "")
+    if not validate_csrf_token(csrf_input):
+        logger.warning("CSRF token 校验失败: %s", username)
+        return render_template("profile.html", error="安全校验失败，请重试")
+
+    amount = request.form.get("amount")
+
+    if not amount:
+        return render_template("profile.html", error="请输入充值金额")
+
+    try:
+        amount = float(amount)
+    except (ValueError, TypeError):
+        return render_template("profile.html", error="金额格式错误")
+
+    # ── 正数金额校验 ──
+    if amount <= 0:
+        logger.warning("充值金额无效 (<=0): %s, amount=%.2f", username, amount)
+        return render_template("profile.html", error="充值金额必须大于 0")
+
+    conn = sqlite3.connect("data/users.db")
+    c = conn.cursor()
+    c.execute("UPDATE users SET balance = balance + ? WHERE username = ?", (amount, username))
+    conn.commit()
+    conn.close()
+
+    logger.info("充值成功: %s, amount=%.2f", username, amount)
+    return redirect("/profile")
 
 
 # ------------------------------------------------------------------
