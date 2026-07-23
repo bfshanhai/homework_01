@@ -515,3 +515,38 @@ body {
     font-weight: 700;
     color: #d97706;
 }
+
+/* ======================== 动态页面内容 ======================== */
+.page-content {
+    font-size: 15px;
+    color: #444;
+    line-height: 1.8;
+}
+
+.page-content h1 {
+    font-size: 22px;
+    font-weight: 600;
+    color: #1a1a2e;
+    margin-bottom: 20px;
+}
+
+.page-content h2 {
+    font-size: 17px;
+    font-weight: 600;
+    color: #1a1a2e;
+    margin-top: 20px;
+    margin-bottom: 8px;
+}
+
+.page-content p {
+    margin-bottom: 12px;
+}
+
+.page-content ul {
+    padding-left: 20px;
+    margin-bottom: 12px;
+}
+
+.page-content li {
+    margin-bottom: 6px;
+}

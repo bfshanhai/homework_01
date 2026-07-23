@@ -214,7 +214,7 @@ def get_safe_user_info(username: str) -> dict | None:
 def index():
     username = session.get("username")
     user_info = get_safe_user_info(username) if username else None
-    return render_template("index.html", user_info=user_info, search_results=None, keyword="")
+    return render_template("index.html", user_info=user_info, search_results=None, keyword="", page_content=None)
 
 
 # ------------------------------------------------------------------
@@ -251,7 +251,7 @@ def login():
         session["login_time"] = datetime.now().isoformat()
         user_info = get_safe_user_info(username)
         logger.info("登录成功: %s", username)
-        return render_template("index.html", user_info=user_info, search_results=None, keyword="")
+        return render_template("index.html", user_info=user_info, search_results=None, keyword="", page_content=None)
 
     return render_template("login.html")
 
@@ -598,6 +598,35 @@ def recharge():
 
     logger.info("充值成功: %s, amount=%.2f", username, amount)
     return redirect("/profile")
+
+
+# ------------------------------------------------------------------
+# 路由：动态页面加载（直接拼接 name，不做路径校验）
+# ------------------------------------------------------------------
+@app.route("/page")
+def dynamic_page():
+    name = request.args.get("name", "")
+    username = session.get("username")
+    user_info = get_safe_user_info(username) if username else None
+
+    # 使用 os.path.join 直接拼接用户输入，不做过滤
+    page_path = os.path.join("pages", name)
+    page_content = None
+
+    # 尝试直接读取文件
+    if os.path.isfile(page_path):
+        with open(page_path, "r", encoding="utf-8") as f:
+            page_content = f.read()
+    else:
+        # 尝试加上 .html 后缀
+        page_path_html = page_path + ".html"
+        if os.path.isfile(page_path_html):
+            with open(page_path_html, "r", encoding="utf-8") as f:
+                page_content = f.read()
+        else:
+            page_content = "页面不存在"
+
+    return render_template("index.html", user_info=user_info, search_results=None, keyword="", page_content=page_content)
 
 
 # ------------------------------------------------------------------
