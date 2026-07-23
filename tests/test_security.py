@@ -19,6 +19,8 @@ from app import app, validate_password_strength, USERS, get_safe_user_info
 # ======================== Fixtures ========================
 
 ERROR_MSG = "用户名或密码错误"
+MSG_PAGE_NOT_FOUND = "页面不存在"
+MSG_HELP = "帮助中心"
 
 @pytest.fixture
 def client():
@@ -472,3 +474,72 @@ class TestAuthZSecurity:
         resp = client.post("/recharge", data={"amount": "50", "_csrf_token": csrf}, follow_redirects=True)
         assert resp.status_code == 200
         assert b"150" in resp.data or b"150.00" in resp.data
+
+
+# ======================== HC-FI: 文件包含漏洞防护 ========================
+
+class TestFileInclusion:
+    """HC-FI 文件包含 — 验证路径穿越/LFI 防御"""
+
+    def _login_as(self, client, username: str, password: str):
+        client.post("/login", data={"username": username, "password": password})
+
+    def test_legit_help_page(self, client):
+        """合法的 help 页面应正常加载"""
+        self._login_as(client, "admin", "admin123")
+        resp = client.get("/page?name=help")
+        assert resp.status_code == 200
+        assert MSG_HELP.encode() in resp.data
+
+    def test_path_traversal_etc_passwd(self, client):
+        """路径穿越 ../../etc/passwd 应被拦截"""
+        self._login_as(client, "admin", "admin123")
+        resp = client.get("/page?name=../../etc/passwd")
+        assert resp.status_code == 200
+        assert MSG_PAGE_NOT_FOUND.encode() in resp.data
+        assert b"root:" not in resp.data  # 不应包含 passwd 内容
+
+    def test_absolute_path_passwd(self, client):
+        """绝对路径 /etc/passwd 应被拦截"""
+        self._login_as(client, "admin", "admin123")
+        resp = client.get("/page?name=/etc/passwd")
+        assert resp.status_code == 200
+        assert MSG_PAGE_NOT_FOUND.encode() in resp.data
+        assert b"root:" not in resp.data
+
+    def test_path_traversal_source_code(self, client):
+        """路径穿越读取 app.py 应被拦截"""
+        self._login_as(client, "admin", "admin123")
+        resp = client.get("/page?name=../app.py")
+        assert resp.status_code == 200
+        assert MSG_PAGE_NOT_FOUND.encode() in resp.data
+        assert b"Flask" not in resp.data
+
+    def test_path_traversal_database(self, client):
+        """路径穿越读取 users.db 应被拦截"""
+        self._login_as(client, "admin", "admin123")
+        resp = client.get("/page?name=../data/users.db")
+        assert resp.status_code == 200
+        assert MSG_PAGE_NOT_FOUND.encode() in resp.data
+        assert b"admin123" not in resp.data
+
+    def test_encoded_path_traversal(self, client):
+        """URL 编码的路径穿越 %2e%2e%2f 应被拦截"""
+        self._login_as(client, "admin", "admin123")
+        resp = client.get("/page?name=%2e%2e%2f%2e%2e%2fetc/passwd")
+        assert resp.status_code == 200
+        assert MSG_PAGE_NOT_FOUND.encode() in resp.data
+
+    def test_empty_name(self, client):
+        """空 name 参数应显示页面不存在"""
+        self._login_as(client, "admin", "admin123")
+        resp = client.get("/page?name=")
+        assert resp.status_code == 200
+        assert MSG_PAGE_NOT_FOUND.encode() in resp.data
+
+    def test_nonexistent_page(self, client):
+        """不存在的页面文件应显示页面不存在"""
+        self._login_as(client, "admin", "admin123")
+        resp = client.get("/page?name=nonexist123xyz")
+        assert resp.status_code == 200
+        assert MSG_PAGE_NOT_FOUND.encode() in resp.data

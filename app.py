@@ -601,32 +601,40 @@ def recharge():
 
 
 # ------------------------------------------------------------------
-# 路由：动态页面加载（直接拼接 name，不做路径校验）
+# 路由：动态页面加载（路径规范化限制在 pages/ 目录内）
 # ------------------------------------------------------------------
+PAGES_DIR = os.path.realpath("pages")
+
+
 @app.route("/page")
 def dynamic_page():
     name = request.args.get("name", "")
     username = session.get("username")
     user_info = get_safe_user_info(username) if username else None
 
-    # 使用 os.path.join 直接拼接用户输入，不做过滤
-    page_path = os.path.join("pages", name)
-    page_content = None
+    # ── 路径穿越防护：仅允许 .html 文件 ──
+    if not name.endswith(".html"):
+        name = name + ".html"
 
-    # 尝试直接读取文件
-    if os.path.isfile(page_path):
-        with open(page_path, "r", encoding="utf-8") as f:
-            page_content = f.read()
-    else:
-        # 尝试加上 .html 后缀
-        page_path_html = page_path + ".html"
-        if os.path.isfile(page_path_html):
-            with open(page_path_html, "r", encoding="utf-8") as f:
-                page_content = f.read()
-        else:
-            page_content = "页面不存在"
+    # ── 路径规范化，防止 ../ 或绝对路径逃逸 ──
+    page_path = os.path.realpath(os.path.join(PAGES_DIR, name))
 
-    return render_template("index.html", user_info=user_info, search_results=None, keyword="", page_content=page_content)
+    # ── 验证目标文件仍在 pages/ 目录下 ──
+    if not page_path.startswith(PAGES_DIR + os.sep) and page_path != PAGES_DIR:
+        logger.warning("路径穿越攻击被拦截: name=%s, attempted_path=%s", name, page_path)
+        return render_template("index.html", user_info=user_info, search_results=None,
+                               keyword="", page_content="页面不存在")
+
+    if not os.path.isfile(page_path):
+        return render_template("index.html", user_info=user_info, search_results=None,
+                               keyword="", page_content="页面不存在")
+
+    with open(page_path, "r", encoding="utf-8") as f:
+        page_content = f.read()
+
+    logger.info("动态页面加载成功: %s", name)
+    return render_template("index.html", user_info=user_info, search_results=None,
+                           keyword="", page_content=page_content)
 
 
 # ------------------------------------------------------------------
