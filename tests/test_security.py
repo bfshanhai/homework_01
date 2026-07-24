@@ -333,7 +333,9 @@ class TestFileUploadSecurity:
     def test_upload_rejects_py_file(self, client):
         """上传 .py 文件应被拒绝"""
         client.post("/login", data={"username": "admin", "password": "admin123"})
-        data = {"file": (BytesIO(b'print("evil")'), "evil.py")}
+        with client.session_transaction() as sess:
+            csrf = sess.get("_csrf_token", "")
+        data = {"file": (BytesIO(b'print("evil")'), "evil.py"), "_csrf_token": csrf}
         resp = client.post("/upload", data=data, content_type="multipart/form-data")
         assert resp.status_code == 200
         assert "不支持".encode() in resp.data or "错误".encode() in resp.data
@@ -341,9 +343,11 @@ class TestFileUploadSecurity:
     def test_upload_rejects_fake_png(self, client):
         """伪装成 PNG 的可执行文件应被 PIL 检测拒绝"""
         client.post("/login", data={"username": "admin", "password": "admin123"})
+        with client.session_transaction() as sess:
+            csrf = sess.get("_csrf_token", "")
         # PNG magic header + non-image data
         fake_content = b"\x89PNG\r\n\x1a\n" + b"not_a_real_image_data_here" * 50
-        data = {"file": (BytesIO(fake_content), "fake.png")}
+        data = {"file": (BytesIO(fake_content), "fake.png"), "_csrf_token": csrf}
         resp = client.post("/upload", data=data, content_type="multipart/form-data")
         assert resp.status_code == 200
         assert "不是有效".encode() in resp.data
@@ -351,7 +355,9 @@ class TestFileUploadSecurity:
     def test_upload_rejects_path_traversal(self, client):
         """路径穿越文件名应被拒绝"""
         client.post("/login", data={"username": "admin", "password": "admin123"})
-        data = {"file": (BytesIO(b"dummy"), "../../etc/malicious.py")}
+        with client.session_transaction() as sess:
+            csrf = sess.get("_csrf_token", "")
+        data = {"file": (BytesIO(b"dummy"), "../../etc/malicious.py"), "_csrf_token": csrf}
         resp = client.post("/upload", data=data, content_type="multipart/form-data")
         assert resp.status_code == 200
         # 应返回错误信息
@@ -367,13 +373,15 @@ class TestFileUploadSecurity:
     def test_valid_png_upload_succeeds(self, client):
         """真正的 PNG 图片应上传成功"""
         client.post("/login", data={"username": "admin", "password": "admin123"})
+        with client.session_transaction() as sess:
+            csrf = sess.get("_csrf_token", "")
         # 创建一个真实有效的 PNG
         import io
         from PIL import Image
         img_buf = io.BytesIO()
         Image.new("RGB", (10, 10), color="red").save(img_buf, "PNG")
         img_buf.seek(0)
-        data = {"file": (img_buf, "test_avatar.png")}
+        data = {"file": (img_buf, "test_avatar.png"), "_csrf_token": csrf}
         resp = client.post("/upload", data=data, content_type="multipart/form-data")
         assert resp.status_code == 200
         assert "上传成功".encode() in resp.data
@@ -543,3 +551,105 @@ class TestFileInclusion:
         resp = client.get("/page?name=nonexist123xyz")
         assert resp.status_code == 200
         assert MSG_PAGE_NOT_FOUND.encode() in resp.data
+
+
+# ======================== HC-XSS/CSRF: XSS 与 CSRF 防护 ========================
+
+class TestXssAndCsrfSecurity:
+    """HC-XSS/CSRF XSS 与 CSRF 漏洞防护"""
+
+    def _login_as(self, client, username: str, password: str):
+        client.post("/login", data={"username": username, "password": password})
+        client.get("/profile")  # 触发 CSRF token 生成
+
+    def _get_csrf(self, client):
+        with client.session_transaction() as sess:
+            return sess.get("_csrf_token", "")
+
+    def test_page_content_xss_escaped(self, client):
+        """动态页面内容中的 HTML 标签应被转义"""
+        self._login_as(client, "admin", "admin123")
+        resp = client.get("/page?name=help")
+        assert resp.status_code == 200
+        # help.html 包含 <h1> 标签，应被转义为 &lt;h1&gt;
+        assert b"&lt;h1&gt;" in resp.data
+        assert b"<h1>" not in resp.data
+
+    def test_search_keyword_xss_escaped(self, client):
+        """搜索关键词中的 XSS payload 应被转义"""
+        self._login_as(client, "admin", "admin123")
+        resp = client.get("/search?keyword=<script>alert('xss')</script>")
+        assert resp.status_code == 200
+        assert b"&lt;script&gt;" in resp.data or b"&#34;" in resp.data
+        assert b"<script>alert" not in resp.data
+
+    def test_change_password_requires_csrf(self, client):
+        """修改密码缺少 CSRF 应被拒绝"""
+        self._login_as(client, "admin", "admin123")
+        resp = client.post("/change-password", data={
+            "username": "admin",
+            "new_password": "newpass123",
+        })
+        # 不应成功，应返回错误
+        assert resp.status_code == 200
+        assert "安全校验失败".encode() in resp.data
+
+    def test_change_password_with_csrf_succeeds(self, client):
+        """修改密码携带正确 CSRF 应成功"""
+        self._login_as(client, "admin", "admin123")
+        csrf = self._get_csrf(client)
+        resp = client.post("/change-password", data={
+            "_csrf_token": csrf,
+            "username": "admin",
+            "new_password": "test123!",
+        }, follow_redirects=True)
+        # 应跳转到 profile
+        assert resp.status_code == 200
+
+    def test_register_requires_csrf(self, client):
+        """注册缺少 CSRF 应被拒绝"""
+        resp = client.post("/register", data={
+            "username": "csrf_test_user",
+            "password": "Test123!@",
+            "email": "csrf@t.com",
+            "phone": "13600000000",
+        })
+        assert "安全校验失败".encode() in resp.data
+
+    def test_register_with_csrf_succeeds(self, client):
+        """注册携带正确 CSRF 应成功"""
+        # 先 GET 一次触发 CSRF token 生成
+        client.get("/register")
+        csrf = self._get_csrf(client)
+        resp = client.post("/register", data={
+            "_csrf_token": csrf,
+            "username": "csrf_test_user2",
+            "password": "Test123!@",
+            "email": "csrf2@t.com",
+            "phone": "13700000000",
+        }, follow_redirects=True)
+        assert "注册成功".encode() in resp.data
+
+    def test_upload_requires_csrf(self, client):
+        """上传缺少 CSRF 应被拒绝"""
+        self._login_as(client, "admin", "admin123")
+        data = {"file": (BytesIO(b"dummy"), "dummy.png")}
+        resp = client.post("/upload", data=data, content_type="multipart/form-data")
+        assert "安全校验失败".encode() in resp.data
+
+    def test_svg_xss_sanitized_on_upload(self, client):
+        """上传含脚本的 SVG 应被清除 script 标签"""
+        self._login_as(client, "admin", "admin123")
+        csrf = self._get_csrf(client)
+        # 创建含脚本的 SVG
+        svg_content = b'<?xml version="1.0"?><svg xmlns="http://www.w3.org/2000/svg"><text>hello</text><script>alert(1)</script></svg>'
+        data = {"file": (BytesIO(svg_content), "evil.svg"), "_csrf_token": csrf}
+        resp = client.post("/upload", data=data, content_type="multipart/form-data")
+        assert resp.status_code == 200
+        # 检查保存在磁盘上的文件是否已清除脚本
+        import glob
+        import os
+        saved_files = glob.glob(os.path.join(app.root_path, "static/uploads/admin/*.svg"))
+        if saved_files:
+            saved_content = open(saved_files[0], "rb").read()
+            assert b"<script>" not in saved_content

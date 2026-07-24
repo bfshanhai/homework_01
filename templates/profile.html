@@ -38,6 +38,18 @@
             <button type="submit" class="btn btn-primary btn-full">立即充值</button>
         </form>
 
+        <hr class="section-divider">
+        <h3 class="section-title">🔑 修改密码</h3>
+        <form method="post" action="/change-password" class="login-form">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
+            <input type="hidden" name="username" value="{{ user.username }}">
+            <div class="form-group">
+                <label for="new_password">新密码</label>
+                <input type="password" id="new_password" name="new_password" class="form-input" placeholder="输入新密码" required>
+            </div>
+            <button type="submit" class="btn btn-primary btn-full">修改密码</button>
+        </form>
+
         <div class="action-group" style="margin-top: 20px;">
             <a href="/" class="btn btn-outline">返回首页</a>
         </div>

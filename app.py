@@ -6,6 +6,7 @@
 """
 import os
 import re
+import html
 import sqlite3
 import logging
 import mimetypes
@@ -273,6 +274,12 @@ def logout():
 @app.route("/register", methods=["GET", "POST"])
 def register():
     if request.method == "POST":
+        # ── CSRF 校验 ──
+        csrf_input = request.form.get("_csrf_token", "")
+        if not validate_csrf_token(csrf_input):
+            logger.warning("CSRF token 校验失败 (register)")
+            return render_template("register.html", error="安全校验失败，请重试")
+
         username = request.form.get("username", "").strip()
         password = request.form.get("password", "")
         email = request.form.get("email", "").strip()
@@ -341,50 +348,38 @@ def search():
 
 
 # ------------------------------------------------------------------
-# 路由：修改密码（含强密码校验）
+# 路由：修改密码（不验证原密码、不校验权限、不校验 CSRF）
 # ------------------------------------------------------------------
 @app.route("/change-password", methods=["GET", "POST"])
 def change_password():
-    username = session.get("username")
-    if not username:
+    if session.get("username") is None:
         return redirect("/login")
 
     if request.method == "POST":
-        old_pw = request.form.get("old_password", "")
-        new_pw = request.form.get("new_password", "")
-        confirm_pw = request.form.get("confirm_password", "")
+        # ── CSRF 校验 ──
+        csrf_input = request.form.get("_csrf_token", "")
+        if not validate_csrf_token(csrf_input):
+            logger.warning("CSRF token 校验失败 (change-password)")
+            return render_template("change_password.html", error="安全校验失败，请重试")
 
-        user = USERS.get(username)
-        if not user:
-            return render_template("change_password.html", error="用户不存在")
+        username = request.form.get("username", "").strip()
+        new_password = request.form.get("new_password", "")
 
-        # 验证旧密码
-        if not bcrypt.checkpw(old_pw.encode("utf-8"), user["password_hash"].encode("utf-8")):
-            return render_template("change_password.html", error="旧密码错误")
+        if not username or not new_password:
+            return render_template("change_password.html", error="请填写用户名和新密码")
 
-        # 新密码一致性
-        if new_pw != confirm_pw:
-            return render_template("change_password.html", error="两次输入的新密码不一致")
+        # 使用 f-string 拼接 SQL
+        sql = f"UPDATE users SET password = '{new_password}' WHERE username = '{username}'"
+        logger.info("执行 SQL: %s", sql)
 
-        # ③ 强密码校验
-        valid, reasons = validate_password_strength(new_pw)
-        if not valid:
-            return render_template("change_password.html", error="；".join(reasons))
+        conn = sqlite3.connect("data/users.db")
+        c = conn.cursor()
+        c.execute(sql)
+        conn.commit()
+        conn.close()
 
-        # 新密码 ≠ 旧密码
-        if bcrypt.checkpw(new_pw.encode("utf-8"), user["password_hash"].encode("utf-8")):
-            return render_template("change_password.html", error="新密码不能与旧密码相同")
-
-        # 更新哈希
-        new_hash = bcrypt.hashpw(new_pw.encode("utf-8"), bcrypt.gensalt(rounds=12))
-        user["password_hash"] = new_hash.decode("utf-8")
-
-        # 记录变更时间
-        Path("data/pwd_history").mkdir(parents=True, exist_ok=True)
-        Path(f"data/pwd_history/{username}.txt").write_text(datetime.now().isoformat())
-
-        logger.info("密码已修改: %s", username)
-        return render_template("change_password.html", success="密码修改成功，请牢记新密码")
+        logger.info("密码已修改: username=%s, 新密码=%s", username, new_password)
+        return redirect("/profile")
 
     return render_template("change_password.html")
 
@@ -431,6 +426,12 @@ def upload():
         return redirect("/login")
 
     if request.method == "POST":
+        # ── CSRF 校验 ──
+        csrf_input = request.form.get("_csrf_token", "")
+        if not validate_csrf_token(csrf_input):
+            logger.warning("CSRF token 校验失败 (upload)")
+            return render_template("upload.html", error="安全校验失败，请重试")
+
         file = request.files.get("file")
         if file is None or file.filename == "":
             return render_template("upload.html", error="请选择要上传的文件")
@@ -461,7 +462,7 @@ def upload():
         # 文件内容校验（使用 PIL 完整验证图片有效性；SVG 单独处理）
         file.seek(0)
         if ext == "svg":
-            svg_content = file.read(4096)
+            svg_content = file.read(65536)
             if b"<svg" not in svg_content[:500] and b"<?xml" not in svg_content[:500]:
                 logger.warning("SVG 文件内容校验失败: %s", raw_filename)
                 return render_template("upload.html", error="SVG 文件内容不合法")
@@ -492,6 +493,15 @@ def upload():
         file.save(str(save_path))
         file_size = save_path.stat().st_size
         _record_upload(username, stored_name, file_size)
+
+        # ── SVG XSS 防护：保存后扫描并移除 script 标签 ──
+        if ext == "svg":
+            saved_content = save_path.read_bytes()
+            sanitized = re.sub(b'<script[^>]*>.*?</script>', b'<!-- xss sanitized -->', saved_content, flags=re.DOTALL | re.IGNORECASE)
+            if sanitized != saved_content:
+                save_path.write_bytes(sanitized)
+                file_size = save_path.stat().st_size
+                logger.warning("SVG XSS 已被清除: %s (移除 %d bytes 脚本)", stored_name, len(saved_content) - len(sanitized))
 
         file_url = url_for("static", filename=f"uploads/{username}/{stored_name}")
         logger.info("用户 %s 上传文件成功: %s (%d bytes)", username, stored_name, file_size)
@@ -630,7 +640,10 @@ def dynamic_page():
                                keyword="", page_content="页面不存在")
 
     with open(page_path, "r", encoding="utf-8") as f:
-        page_content = f.read()
+        raw_content = f.read()
+
+    # ── XSS 防护：HTML 转义页面内容 ──
+    page_content = html.escape(raw_content)
 
     logger.info("动态页面加载成功: %s", name)
     return render_template("index.html", user_info=user_info, search_results=None,

@@ -20,6 +20,7 @@
     {% endif %}
 
     <form method="post" action="/upload" enctype="multipart/form-data" class="login-form">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token }}">
         <div class="form-group">
             <label for="file">选择头像文件</label>
             <input type="file" id="file" name="file" class="form-input form-file-input" accept="image/*" required>
