@@ -550,3 +550,10 @@ body {
 .page-content li {
     margin-bottom: 6px;
 }
+
+/* ======================== 反馈页文本框 ======================== */
+.feedback-textarea {
+    resize: vertical;
+    min-height: 100px;
+    font-family: inherit;
+}
