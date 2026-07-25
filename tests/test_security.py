@@ -653,3 +653,69 @@ class TestXssAndCsrfSecurity:
         if saved_files:
             saved_content = open(saved_files[0], "rb").read()
             assert b"<script>" not in saved_content
+
+
+# ======================== HC-SSTI: 模板注入漏洞防护 ========================
+
+class TestSSTISecurity:
+    """HC-SSTI 模板注入 — 验证 SSTI 防御"""
+
+    def test_welcome_ssti_expr_not_evaluated(self, client):
+        """欢迎页 {{7*7}} 不应被计算为 49"""
+        resp = client.get("/welcome?name={{7*7}}")
+        assert resp.status_code == 200
+        assert b"49" not in resp.data
+        # 应显示原始文本 {{7*7}} 或友好提示
+        text = resp.data.decode()
+        assert "{{7*7}}" in text or "亲爱的用户" in text
+
+    def test_welcome_ssti_config_not_leaked(self, client):
+        """欢迎页 {{config}} 不应泄露 Flask 配置"""
+        resp = client.get("/welcome?name={{config}}")
+        assert resp.status_code == 200
+        assert b"SECRET_KEY" not in resp.data
+
+    def test_welcome_ssti_class_chain_blocked(self, client):
+        """欢迎页 SSTI 类链攻击应被隔离"""
+        resp = client.get("/welcome?name={{''.__class__.__mro__[1].__subclasses__()}}")
+        assert resp.status_code == 200
+        # 不应包含 Python 类信息
+        assert b"subprocess" not in resp.data.lower() and b"Popen" not in resp.data
+
+    def test_feedback_ssti_expr_not_evaluated(self, client):
+        """反馈页 {{7*7}} 不应被计算为 49"""
+        resp = client.post("/feedback", data={"name": "{{7*7}}", "message": "test"})
+        assert resp.status_code == 200
+        assert b"49" not in resp.data
+        text = resp.data.decode()
+        assert "{{7*7}}" in text
+
+    def test_feedback_ssti_config_not_leaked(self, client):
+        """反馈页 {{config}} 不应泄露配置"""
+        resp = client.post("/feedback", data={"name": "test", "message": "{{config}}"})
+        assert resp.status_code == 200
+        assert b"SECRET_KEY" not in resp.data
+
+    def test_feedback_ssti_both_fields_safe(self, client):
+        """反馈页 name 和 message 两个字段均防止 SSTI"""
+        resp = client.post("/feedback", data={
+            "name": "{{7*7}}",
+            "message": "{{config}}"
+        })
+        assert resp.status_code == 200
+        assert b"49" not in resp.data
+        assert b"SECRET_KEY" not in resp.data
+
+    def test_welcome_normal_function(self, client):
+        """欢迎页正常功能不受影响"""
+        resp = client.get("/welcome?name=张三")
+        assert resp.status_code == 200
+        text = resp.data.decode()
+        assert "张三" in text
+
+    def test_feedback_normal_function(self, client):
+        """反馈页正常功能不受影响"""
+        resp = client.post("/feedback", data={"name": "李四", "message": "很好用"})
+        assert resp.status_code == 200
+        text = resp.data.decode()
+        assert "李四" in text and "很好用" in text

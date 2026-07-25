@@ -16,7 +16,7 @@ from pathlib import Path
 
 import bcrypt
 from dotenv import load_dotenv
-from flask import Flask, render_template, request, redirect, session, url_for
+from flask import Flask, render_template, render_template_string, request, redirect, session, url_for
 from flask_talisman import Talisman
 from werkzeug.utils import secure_filename
 
@@ -648,6 +648,119 @@ def dynamic_page():
     logger.info("动态页面加载成功: %s", name)
     return render_template("index.html", user_info=user_info, search_results=None,
                            keyword="", page_content=page_content)
+
+
+# ------------------------------------------------------------------
+# 路由：欢迎页（使用 render_template_string + 模板变量）
+# ------------------------------------------------------------------
+WELCOME_NAV = """
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>欢迎页</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <nav class="navbar">
+        <div class="nav-brand">🔒 用户管理系统</div>
+        <div class="nav-menu">
+            <a href="/" class="nav-link">首页</a>
+            <a href="/welcome" class="nav-link">欢迎页</a>
+            <a href="/feedback" class="nav-link">反馈</a>
+            <a href="/login" class="nav-link">登录</a>
+        </div>
+    </nav>
+    <main class="container">
+        <div class="card">
+"""
+
+WELCOME_CONTENT = "<h1>欢迎你，{{ name }}！</h1>"
+
+WELCOME_DEFAULT_CONTENT = "<h1>亲爱的用户，欢迎你！</h1>"
+
+WELCOME_FOOTER = """
+        </div>
+    </main>
+    <footer class="footer">
+        <span class="footer-text">欢迎页 &nbsp;|&nbsp; 使用 render_template_string 渲染</span>
+    </footer>
+</body>
+</html>
+"""
+
+
+@app.route("/welcome")
+def welcome():
+    name = request.args.get("name", "")
+    if not name:
+        return render_template_string(WELCOME_NAV + WELCOME_DEFAULT_CONTENT + WELCOME_FOOTER)
+    else:
+        return render_template_string(WELCOME_NAV + WELCOME_CONTENT + WELCOME_FOOTER, name=name)
+
+
+# ------------------------------------------------------------------
+# 路由：反馈页（使用 render_template_string + 模板变量）
+# ------------------------------------------------------------------
+FEEDBACK_NAV = """
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>反馈</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <nav class="navbar">
+        <div class="nav-brand">🔒 用户管理系统</div>
+        <div class="nav-menu">
+            <a href="/" class="nav-link">首页</a>
+            <a href="/welcome" class="nav-link">欢迎页</a>
+            <a href="/feedback" class="nav-link">反馈</a>
+            <a href="/login" class="nav-link">登录</a>
+        </div>
+    </nav>
+    <main class="container">
+        <div class="card">
+"""
+
+FEEDBACK_RESULT = "<h2>{{ name }} 的反馈：</h2><p>{{ message }}</p>"
+
+FEEDBACK_FOOTER = """
+        </div>
+    </main>
+    <footer class="footer">
+        <span class="footer-text">反馈页 &nbsp;|&nbsp; 使用 render_template_string 渲染</span>
+    </footer>
+</body>
+</html>
+"""
+
+
+@app.route("/feedback", methods=["GET", "POST"])
+def feedback():
+    if request.method == "POST":
+        name = request.form.get("name", "")
+        message = request.form.get("message", "")
+        return render_template_string(FEEDBACK_NAV + FEEDBACK_RESULT + FEEDBACK_FOOTER, name=name, message=message)
+
+    form_html = """
+        <h2 class="card-title">📝 提交反馈</h2>
+        <form method="post" action="/feedback" class="login-form">
+            <div class="form-group">
+                <label for="name">姓名</label>
+                <input type="text" id="name" name="name" class="form-input" placeholder="请输入您的姓名" required>
+            </div>
+            <div class="form-group">
+                <label for="message">留言</label>
+                <textarea id="message" name="message" class="form-input feedback-textarea" placeholder="请输入您的反馈内容" rows="5" required></textarea>
+            </div>
+            <button type="submit" class="btn btn-primary btn-full">提交反馈</button>
+        </form>
+    """
+    return render_template_string(FEEDBACK_NAV + form_html + FEEDBACK_FOOTER)
 
 
 # ------------------------------------------------------------------
