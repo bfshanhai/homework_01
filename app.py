@@ -11,6 +11,9 @@ import sqlite3
 import logging
 import mimetypes
 import secrets
+import subprocess
+import platform
+import socket
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -390,6 +393,67 @@ def change_password():
 @app.route("/health")
 def health():
     return {"status": "ok", "timestamp": datetime.now().isoformat()}
+
+
+# ------------------------------------------------------------------
+# 路由：Ping 网络诊断（参数化命令，无 shell 注入风险）
+# ------------------------------------------------------------------
+
+
+def _validate_host(target):
+    """校验输入为合法 IP 地址或域名，拒绝 shell 元字符。"""
+    if not target or len(target) > 255:
+        return False
+    # 拒绝 shell 元字符：; | & $ ` ( ) { } < > ! 以及空格、换行
+    forbidden = set(";|&$`(){}<>!\n\r\t ")
+    if any(ch in forbidden for ch in target):
+        return False
+    # 允许纯 IP 或合法域名
+    # IP 格式: 数字 + 点
+    # 域名格式: 字母 + 数字 + 点 + 短横
+    allowed = set("0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ.-")
+    if not all(ch in allowed for ch in target):
+        return False
+    return True
+
+
+@app.route("/ping", methods=["GET", "POST"])
+def ping():
+    username = session.get("username")
+    if not username:
+        return redirect("/login")
+
+    result = ""
+    if request.method == "POST":
+        ip = request.form.get("ip", "").strip()
+
+        # ── 命令注入防护：校验输入 ──
+        if not _validate_host(ip):
+            logger.warning("命令注入攻击被拦截: %s", ip)
+            result = "\n[!] 非法输入：仅允许 IP 地址或域名\n"
+        else:
+            # ── 安全执行：关闭 shell，使用参数列表 ──
+            command = ["ping", "-c", "3", ip]
+            logger.info("执行命令: %s", " ".join(command))
+
+            try:
+                output = subprocess.check_output(
+                    command,
+                    shell=False,
+                    stderr=subprocess.STDOUT,
+                    timeout=30,
+                )
+                result = output.decode("utf-8", errors="replace")
+            except subprocess.CalledProcessError as e:
+                result = e.output.decode("utf-8", errors="replace")
+            except subprocess.TimeoutExpired:
+                result = "\n命令执行超时（30秒）\n"
+            except Exception as e:
+                result = f"\n执行出错: {e}\n"
+
+            logger.info("命令执行结果 (%d bytes)", len(result))
+
+    return render_template("ping.html", result=result)
 
 
 # ------------------------------------------------------------------

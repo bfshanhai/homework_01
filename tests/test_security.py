@@ -719,3 +719,72 @@ class TestSSTISecurity:
         assert resp.status_code == 200
         text = resp.data.decode()
         assert "李四" in text and "很好用" in text
+
+
+# ======================== HC-CMD: 命令注入漏洞防护 ========================
+
+class TestCommandInjection:
+    """HC-CMD 命令注入 — 验证 shell 注入防御"""
+
+    def _login_as(self, client, username: str, password: str):
+        client.post("/login", data={"username": username, "password": password})
+
+    def test_ping_requires_login(self, client):
+        """ping 未登录应跳转"""
+        resp = client.get("/ping", follow_redirects=False)
+        assert resp.status_code == 302
+        assert "/login" in resp.headers.get("Location", "")
+
+    def test_ping_legit_ip_works(self, client):
+        """合法 IP 的 ping 请求应正常执行"""
+        self._login_as(client, "admin", "admin123")
+        resp = client.post("/ping", data={"ip": "127.0.0.1"})
+        assert resp.status_code == 200
+        assert b"127.0.0.1" in resp.data
+
+    def test_command_injection_semicolon_blocked(self, client):
+        """命令注入 ;{cmd} 应被拦截"""
+        self._login_as(client, "admin", "admin123")
+        resp = client.post("/ping", data={"ip": "127.0.0.1;id"})
+        assert resp.status_code == 200
+        # 不应包含 id 命令的输出
+        assert b"uid=" not in resp.data
+        # 应显示拦截提示
+        assert "非法输入".encode() in resp.data or "拒绝".encode() in resp.data or "不允许".encode() in resp.data
+
+    def test_command_injection_pipe_blocked(self, client):
+        """命令注入 |{cmd} 应被拦截"""
+        self._login_as(client, "admin", "admin123")
+        resp = client.post("/ping", data={"ip": "127.0.0.1|cat /etc/passwd"})
+        assert resp.status_code == 200
+        assert b"root:" not in resp.data
+        assert "非法输入".encode() in resp.data or "拒绝".encode() in resp.data
+
+    def test_command_injection_subshell_blocked(self, client):
+        """命令注入 $(cmd) 应被拦截"""
+        self._login_as(client, "admin", "admin123")
+        resp = client.post("/ping", data={"ip": "127.0.0.1$(whoami)"})
+        assert resp.status_code == 200
+        assert "非法输入".encode() in resp.data or "拒绝".encode() in resp.data
+
+    def test_command_injection_backtick_blocked(self, client):
+        """命令注入 `cmd` 应被拦截"""
+        self._login_as(client, "admin", "admin123")
+        resp = client.post("/ping", data={"ip": "127.0.0.1`id`"})
+        assert resp.status_code == 200
+        assert "非法输入".encode() in resp.data or "拒绝".encode() in resp.data
+
+    def test_command_injection_and_blocked(self, client):
+        """命令注入 &&{cmd} 应被拦截"""
+        self._login_as(client, "admin", "admin123")
+        resp = client.post("/ping", data={"ip": "127.0.0.1&&whoami"})
+        assert resp.status_code == 200
+        assert "非法输入".encode() in resp.data or "拒绝".encode() in resp.data
+
+    def test_validate_host_allows_domain(self, client):
+        """域名如 example.com 应被允许"""
+        self._login_as(client, "admin", "admin123")
+        resp = client.post("/ping", data={"ip": "example.com"})
+        assert resp.status_code == 200
+        # example.com 可能 ping 不通，但不应报非法输入
+        assert "非法输入".encode() not in resp.data
